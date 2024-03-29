@@ -1,10 +1,16 @@
+//Libaries
 #include <Servo.h>
 #include <Wire.h>
 #include "MS5837.h"
 
-MS5837 sensor;
+#define ANALOG_IN_PIN A8
+#define ANALOG_IN_PIN A7
 
-Servo AL, VRL, VRR, HRL, HRR, AR, VHR, HHR;             // Servo-Objekte für jeden ESC
+ // Hardware 
+MS5837 sensor;
+Servo AL, VRL, VRR, HRL, HRR, AR, VHR, HHR;              // Servo-Objekte für jeden ESC
+
+ //Pins für Motoren und Funk 
 int ALPin = 24, VRLPin = 25, HRLPin = 27, ARPin = 29;  // Die Pins für AL, VRL, HRL, und AR
 int VHRPin = 26, HHRPin = 28;                         // Die Pins für VHR und HHR
 int rcsignalPin = 5;                                 // Der Pin, an dem das RC-Signal für AL und AR angeschlossen ist
@@ -12,19 +18,39 @@ int rcsignalPin2 = 6;                               // Der Pin, an dem das RC-Si
 int rcsignalPin3 = 7;                              // Der Pin, an dem das RC-Signal für VRL angeschlossen ist
 int rcsignalPin4 = 4;                             // Der Pin, an dem das RC-Signal für HRL angeschlossen ist
 
+float LPV; 
+float adc_voltage1 = 0.0;
+float in_voltage1 = 0.0; // zu übertragende Spannung 1
+float R1_1 = 30000.0;
+float R2_1 = 7500.0; 
+float ref_voltage1 = 5.0;
+int adc_value1 = 0;
+float adc_voltage2 = 0.0;
+float in_voltage2 = 0.0; // zu übertragende Spannung 2
+// Floats for resistor values in divider (in ohms)
+float R1_2 = 30000.0;
+float R2_2 = 7500.0; 
+// Float for Reference Voltage
+float ref_voltage2 = 5.0; 
+// Integer for ADC value
+int adc_value2 = 0;
 
 void setup() {
+
+  Serial.begin(9600);
+  Serial.println("Startet");
+  Wire.begin();
  
 
   // Initialisiere die Relaispins als OUTPUT und schalte sie aus
   pinMode(14, OUTPUT);
-  pinMode(15, OUTPUT);         // Auslass vorne
-  pinMode(16, OUTPUT);        // Auslass Hinten
-  pinMode(17, OUTPUT);       //Einlass Hinten
-  pinMode(18, OUTPUT);      // Haupteinlass 
-  pinMode(19, OUTPUT);     // Einlass Vorne
-  pinMode(10, OUTPUT);    // Greifer ZU
-  pinMode(11, OUTPUT);   // Greifer AUF
+  pinMode(15, OUTPUT);       // Auslass vorne
+  pinMode(16, OUTPUT);      // Auslass Hinten
+  pinMode(17, OUTPUT);     //Einlass Hinten
+  pinMode(18, OUTPUT);    // Haupteinlass 
+  pinMode(19, OUTPUT);   // Einlass Vorne
+  pinMode(10, OUTPUT);  // Greifer ZU
+  pinMode(11, OUTPUT); // Greifer AUF
    
   AL.attach(ALPin);          // ESC an Pin 24 als AL
   VRL.attach(VRLPin);       // ESC an Pin 25 als VRL
@@ -33,29 +59,24 @@ void setup() {
   VHR.attach(VHRPin);    // ESC an Pin 26 als VHR
   HHR.attach(HHRPin);   // ESC an Pin 28 als HHR
 
-    Serial.begin(9600);
-  Serial.println("Starting");
-  Wire.begin();
-
-  while (!sensor.init()) {
+    while (!sensor.init()) {
     Serial.println("Init failed!");
     Serial.println("Are SDA/SCL connected correctly?");
     Serial.println("Blue Robotics Bar30: White=SDA, Green=SCL");
     Serial.println("\n\n\n");
-    }
-
-   sensor.setFluidDensity(997); // kg/m^3 (freshwater, 1029 for seawater)
+    delay(5000);
+  }
+  sensor.setModel(MS5837::MS5837_30BA);
+  sensor.setFluidDensity(997); // kg/m^3 (freshwater, 1029 for seawater)
   
- 
-
-  digitalWrite(14, HIGH);            // Relais 14 ausschalten
-  digitalWrite(15, HIGH);           // Relais 15 ausschalten
-  digitalWrite(16, HIGH);          // Relais 16 ausschalten
-  digitalWrite(17, HIGH);         // Relais 17 ausschalten
-  digitalWrite(18, HIGH);        // Relais 18 ausschalten
-  digitalWrite(19, HIGH);       // Relais 19 ausschalten
-  digitalWrite(10, HIGH);      // Relais 20 ausschalten
-  digitalWrite(11, HIGH);     // Relais 21 ausschalten
+  digitalWrite(14, HIGH); // Relais 14 ausschalten
+  digitalWrite(15, HIGH); // Relais 15 ausschalten
+  digitalWrite(16, HIGH); // Relais 16 ausschalten
+  digitalWrite(17, HIGH); // Relais 17 ausschalten
+  digitalWrite(18, HIGH); // Relais 18 ausschalten
+  digitalWrite(19, HIGH); // Relais 19 ausschalten
+  digitalWrite(10, HIGH); // Relais 20 ausschalten
+  digitalWrite(11, HIGH); // Relais 21 ausschalten
 }
 
 
@@ -67,18 +88,44 @@ void loop() {
   int rcSignal_VHR_HHR = pulseIn(rcsignalPin2, HIGH, 25000);  // Lese das RC-Signal für VHR und HHR ein
   int rcSignal_VRL = pulseIn(rcsignalPin3, HIGH, 25000);     // Lese das RC-Signal für VRL ein
   int rcSignal_HRL = pulseIn(rcsignalPin4, HIGH, 25000);    // Lese das RC-Signal für HRL ein
-  int LPV;                                                  // abgespeicherter Druckwert, wenn die Höhensteuerung zuletzt betätigt wurde
-  int differenzkleinAssistenz = 0.5 ;    // legt fest ab welcher differenz die hhr und vhr motoren angeschalten werden
-  int differenzgrossAssistenz = 1;       // legt fest ab welcher differenz die tauchzellen angeschalten werden - gross mit zwei s geschrieben da scharfes s nicht kompiliert 
-
-  sensor.read();
-
-
-  if( rcSignal_VHR_HHR < 1200 && -1.25  > (sensor.depth())  ||  rcSignal_VHR_HHR > 1700  && -1  > (sensor.depth()) ){ // Wenn RC-Signal aktiv hoch oder runter  und Uboot mehr als 1 Meter Unterwasser 
-
-LPV = (sensor.depth()) ;                // sichere den aktuellen Druckwert als LPV (Last Pressure Value)
-    }
   
+  sensor.read();
+  adc_value1 = analogRead(A7);
+  adc_value2 = analogRead(A8);
+
+  
+  adc_voltage1  = (adc_value1 * ref_voltage1) / 1024.0;
+  in_voltage1 = adc_voltage1*(R1_1+R2_1)/R2_1;
+  Serial.print("Input Voltage = ");
+  Serial.println(in_voltage1, 2);
+
+  adc_voltage2  = (adc_value2 * ref_voltage2) / 1024.0;
+  in_voltage2 = adc_voltage2*(R1_2+R2_2)/R2_2;
+  Serial.print("Input Voltage = ");
+  Serial.println(in_voltage2, 2);
+
+  
+  Serial.print(sensor.depth()); 
+
+LPV = (sensor.depth());
+  
+  Serial.print("Pressure: "); 
+  Serial.print(sensor.pressure()); 
+  Serial.println(" mbar");
+  Serial.print("Temperature: "); 
+  Serial.print(sensor.temperature()); 
+  Serial.println(" deg C"); 
+  Serial.print("Depth: "); 
+  Serial.print(sensor.depth()); 
+  Serial.println(" m");
+  Serial.print("Altitude: "); 
+  Serial.print(sensor.altitude()); 
+  Serial.println(" m above mean sea level");
+
+Serial.print("LPV:");
+Serial.println (LPV );
+
+
 
      if (rcSignal_HRL >= 600 &&  rcSignal_HRL <= 1200) {
    HRL.writeMicroseconds(1000);
@@ -89,8 +136,10 @@ LPV = (sensor.depth()) ;                // sichere den aktuellen Druckwert als L
     HRL.writeMicroseconds(1500); 
   }
   
-  
-  if (rcSignal_AL_AR >= 900 && rcSignal_AL_AR <= 1300) {    // Steuere AL und AR basierend auf dem RC-Signal
+//-----------------------------------------//-----------------------------------------//-----------------------------------------//-----------------------------------------
+
+  // Steuere AL und AR basierend auf dem RC-Signal
+  if (rcSignal_AL_AR >= 900 && rcSignal_AL_AR <= 1300) {
     AL.writeMicroseconds(1000);
     AR.writeMicroseconds(1000);
   } else if (rcSignal_AL_AR > 1800) {
@@ -101,8 +150,8 @@ LPV = (sensor.depth()) ;                // sichere den aktuellen Druckwert als L
     AR.writeMicroseconds(1500);
   }
   
-                                    
-  if (rcSignal_VHR_HHR < 1200) {                            // Steuere VHR und HHR basierend auf dem RC-Signal
+  // Steuere VHR und HHR basierend auf dem RC-Signal
+  if (rcSignal_VHR_HHR < 1200) {
     VHR.writeMicroseconds(1000);
     HHR.writeMicroseconds(1000);
   } else if (rcSignal_VHR_HHR > 1700) {
@@ -112,6 +161,7 @@ LPV = (sensor.depth()) ;                // sichere den aktuellen Druckwert als L
     VHR.writeMicroseconds(1500);
     HHR.writeMicroseconds(1500);
   }
+ //-----------------------------------------//-----------------------------------------//-----------------------------------------//-----------------------------------------
 
    if (rcSignal_VRL >= 600 && rcSignal_VRL <= 1200) {
    VRL.writeMicroseconds(1000);
@@ -122,28 +172,31 @@ LPV = (sensor.depth()) ;                // sichere den aktuellen Druckwert als L
     VRL.writeMicroseconds(1500); 
   }
 
+//-----------------------------------------//-----------------------------------------//-----------------------------------------//-----------------------------------------
+
  int pulsewidths[6];
 
-  pulsewidths[4] = pulseIn(8, HIGH);      // Equipment 
-  pulsewidths[5] = pulseIn(9, HIGH);     // Tauchzellen
+  pulsewidths[4] = pulseIn(8, HIGH); // Equipment 
+  pulsewidths[5] = pulseIn(9, HIGH); // Tauchzellen
  
 
   int EquipmentValue = pulsewidths[4];
   int TauchzellenValue = pulsewidths[5];
 
      if (TauchzellenValue >= 700 && TauchzellenValue <= 1200) {
-          digitalWrite(15, LOW);        // Relais 15 einschalten Auslass Ventil Vorne
-          digitalWrite(16, LOW);       // Relais 16 einschalten Auslass Ventil hinten
+          digitalWrite(15, LOW); // Relais 15 einschalten Auslass Ventil Vorne
+          digitalWrite(16, LOW); // Relais 16 einschalten Auslass Ventil hinten
     
           } else if (TauchzellenValue >= 1400 && TauchzellenValue <= 1600) {
-                                                                               // Alle Relais zwischen 14 und 20 ausschalten
+          // Alle Relais zwischen 14 und 20 ausschalten
           for (int i = 14; i <= 19; i++) {
           digitalWrite(i, HIGH);
           }
           } else if (TauchzellenValue >= 1750 && TauchzellenValue <= 2000) {
-          digitalWrite(17, LOW);         // Relais 17 einschalten Einlass Ventil hinten 
-          digitalWrite(18, LOW);        // Relais 18 einschalten Haupteinlass 
-          digitalWrite(19, LOW);       // Relais 19 einschalten Einlass Ventil vorne
+            
+          digitalWrite(17, LOW); // Relais 17 einschalten Einlass Ventil hinten 
+          digitalWrite(18, LOW); // Relais 18 einschalten Haupteinlass 
+          digitalWrite(19, LOW); // Relais 19 einschalten Einlass Ventil vorne
     
            } else {
            // Alle Relais ausschalten, da die Pulsbreite von Kanal 6 nicht in den definierten Bereichen liegt
@@ -153,53 +206,16 @@ LPV = (sensor.depth()) ;                // sichere den aktuellen Druckwert als L
              }
 
             if (EquipmentValue >= 1000  ) {
-             digitalWrite(10, LOW);       // Relais 10 einschalten  Equipment 
-             digitalWrite(11, HIGH);     // Relais 11 einschalten  Equipment 
-              digitalWrite(18, LOW);    // Relais 18 einschalten Haupteinlass 
+             digitalWrite(10, LOW); // Relais 10 einschalten  Equipment 
+             digitalWrite(11, HIGH); // Relais 11 einschalten  Equipment 
+              digitalWrite(18, LOW); // Relais 18 einschalten Haupteinlass 
              } else {
-             digitalWrite(10, HIGH);      // Relais 11 ausschalten Equipment geändert auch 10 und 11-davor 21 20 wegen sda scl belegung 
-             digitalWrite(11, LOW);      // Relais 11 ausschalten Equipment
-             digitalWrite(18, LOW);     // Relais 18 einschalten Haupteinlass  
+             digitalWrite(10, HIGH); // Relais 10 ausschalten Equipment 
+             digitalWrite(11, LOW); // Relais 11 ausschalten Equipment
+             digitalWrite(18, LOW); // Relais 18 einschalten Haupteinlass  
        }
 
-     if (rcSignal_VHR_HHR < 1700  && rcSignal_VHR_HHR > 1200  &&( LPV + differenzkleinAssistenz ) >(sensor.depth()) ){                    
-    VHR.writeMicroseconds(1000);
-    HHR.writeMicroseconds(1000);
-  } else if (rcSignal_VHR_HHR < 1700  && rcSignal_VHR_HHR > 1200  && ( LPV - differenzkleinAssistenz ) <(sensor.depth()) ) {
-    VHR.writeMicroseconds(2000);
-    HHR.writeMicroseconds(2000);
-  }
-  else {
-    VHR.writeMicroseconds(1500);
-    HHR.writeMicroseconds(1500);
-  }
-//-------------------------------------------------------------------------------------------------------------------
-     if (rcSignal_VHR_HHR < 1700  && rcSignal_VHR_HHR > 1200  &&( LPV + differenzgrossAssistenz ) >(sensor.depth()) ){                    
-      digitalWrite(15, LOW);           // Relais 15 einschalten Auslass Ventil Vorne
-      digitalWrite(16, LOW);          // Relais 16 einschalten Auslass Ventil hinten
-      delay(1000);
-      digitalWrite(15, HIGH);           // Relais 15 ausschalten Auslass Ventil Vorne
-      digitalWrite(16, HIGH);          // Relais 16 ausschalten Auslass Ventil hinten
-      
-  } else if (rcSignal_VHR_HHR < 1700  && rcSignal_VHR_HHR > 1200  && ( LPV - differenzgrossAssistenz ) <(sensor.depth()) ) {
-    digitalWrite(17, LOW);          // Relais 17 einschalten Einlass Ventil hinten 
-    digitalWrite(18, LOW);         // Relais 18 einschalten Haupteinlass 
-    digitalWrite(19, LOW);        // Relais 19 einschalten Einlass Ventil vorn
-    delay (1000); 
-    digitalWrite(17, HIGH);          // Relais 17 ausschalten Einlass Ventil hinten 
-    digitalWrite(18, HIGH);         // Relais 18 ausschalten Haupteinlass 
-    digitalWrite(19, HIGH);        // Relais 19 ausschalten Einlass Ventil vorn
-  }
-  else {
-  digitalWrite(17, HIGH);              // Relais 17 einschalten Einlass Ventil hinten 
-    digitalWrite(18, LOW);            // Relais 18 einschalten Haupteinlass 
-    digitalWrite(19,  HIGH);         // Relais 19 einschalten Einlass Ventil vorne
-      digitalWrite(15,  HIGH);      // Relais 15 einschalten Auslass Ventil Vorne
-      digitalWrite(16,  HIGH);     // Relais 16 einschalten Auslass Ventil hinten
-  }
-      
 
-
-  delay(1000 ); //nicht unter 1000 sonst laufen die motoren unkontroliert
+  delay(100 ); 
 
 }
