@@ -2,6 +2,7 @@
 #include <Servo.h>
 #include <Wire.h>
 #include "MS5837.h"
+#include <ArduinoJson.h>
 
 #define ANALOG_IN_PIN A8
 #define ANALOG_IN_PIN A7
@@ -35,9 +36,14 @@ float ref_voltage2 = 5.0;
 // Integer for ADC value
 int adc_value2 = 0;
 
+#define SerialTX Serial1
+
+
 void setup() {
 
-  Serial.begin(9600);
+  Serial.begin(115200);
+  SerialTX.begin(9600);
+
   Serial.println("Startet");
   Wire.begin();
  
@@ -80,7 +86,9 @@ void setup() {
 }
 
 
-
+String prepData(float temp, float depth, float pressure, float alt, float v1, float v2){
+  return "<temp:" + String(temp) + "|depth" + String(depth) + ">";
+};
 
 void loop() {
 
@@ -104,30 +112,39 @@ void loop() {
   Serial.print("Input Voltage = ");
   Serial.println(in_voltage2, 2);
 
-  
-  Serial.print(sensor.depth()); 
+  float pressure = sensor.pressure();
+  float temp = sensor.temperature();
+  float depth = sensor.depth();
+  float alt = sensor.altitude();
 
-LPV = (sensor.depth());
+  LPV = (sensor.depth());
   
   Serial.print("Pressure: "); 
-  Serial.print(sensor.pressure()); 
+  Serial.print(pressure); 
   Serial.println(" mbar");
   Serial.print("Temperature: "); 
-  Serial.print(sensor.temperature()); 
+  Serial.print(temp); 
   Serial.println(" deg C"); 
   Serial.print("Depth: "); 
-  Serial.print(sensor.depth()); 
+  Serial.print(depth); 
   Serial.println(" m");
   Serial.print("Altitude: "); 
-  Serial.print(sensor.altitude()); 
+  Serial.print(alt); 
   Serial.println(" m above mean sea level");
 
-Serial.print("LPV:");
-Serial.println (LPV );
+  Serial.print("LPV:");
+  Serial.println (LPV );
+  StaticJsonDocument<200> payload;
+  payload["temp"] = temp;
+  payload["altitude"] = alt;
+  payload["pressure"] = pressure;
+  payload["depth"] = depth;
+  payload["v1"] = in_voltage1;
+  payload["v2"] = in_voltage2;
+  serializeJson(payload, SerialTX);
 
 
-
-     if (rcSignal_HRL >= 600 &&  rcSignal_HRL <= 1200) {
+  if (rcSignal_HRL >= 600 &&  rcSignal_HRL <= 1200) {
    HRL.writeMicroseconds(1000);
   
   } else if (rcSignal_HRL > 1800) {
